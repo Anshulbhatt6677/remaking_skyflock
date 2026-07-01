@@ -81,7 +81,7 @@ async def takeoff_drone(drones, drone_id, logger):
     try:
         logger.info(f"Drone {drone_id}: switching to HOLD mode")
         await drone.action.hold()
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
     except Exception as e:
         if hasattr(logger, 'warn'):
             logger.warn(f"Drone {drone_id}: HOLD warning — {e}")
@@ -97,6 +97,7 @@ async def takeoff_drone(drones, drone_id, logger):
         takeoff_alt = 8.0
         logger.info(f"Drone {drone_id}: setting takeoff altitude to {takeoff_alt}m (relative to home)")
         await drone.action.set_takeoff_altitude(takeoff_alt)
+        await asyncio.sleep(2)
     except Exception as e:
         if hasattr(logger, 'warn'):
             logger.warn(f"Drone {drone_id}: could not set takeoff altitude — {e}")
@@ -109,7 +110,7 @@ async def takeoff_drone(drones, drone_id, logger):
         try:
             logger.info(f"Drone {drone_id}: arming (attempt {attempt+1})")
             await drone.action.arm()
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             armed_successfully = True
             break
         except Exception as e:
@@ -123,7 +124,7 @@ async def takeoff_drone(drones, drone_id, logger):
                 logger.warn(msg)
             else:
                 logger.warning(msg)
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             
     if not armed_successfully:
         logger.error(f"Drone {drone_id}: Failed to arm after 3 attempts.")
@@ -132,6 +133,7 @@ async def takeoff_drone(drones, drone_id, logger):
     try:
         logger.info(f"Drone {drone_id}: sending takeoff command")
         await drone.action.takeoff()
+        await asyncio.sleep(2)
         logger.info(f"Drone {drone_id}: takeoff command sent")
     except Exception as e:
         logger.error(f"Drone {drone_id}: TAKEOFF ERROR — {e}")
@@ -160,7 +162,8 @@ async def goto_position(drones, drone_id, x, y, z, yaw, logger):
     offset correction is needed for Z in offboard mode.
     """
     x, y, z = validate_position(x, y, z)
-    logger.info(f"Drone {drone_id}: GOTO x={x} y={y} z={z} yaw={yaw}")
+    if hasattr(logger, 'debug'):
+        logger.debug(f"Drone {drone_id}: GOTO x={x} y={y} z={z} yaw={yaw}")
     drones[drone_id]["target_position"] = PositionNedYaw(x, y, z, yaw)
 
 

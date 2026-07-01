@@ -36,19 +36,16 @@ class JsonLoggerWrapper:
         self.logger = ros_logger
 
     def _log(self, level, msg):
-        log_obj = {
-            "timestamp": time.time(),
-            "level": level,
-            "message": msg
-        }
-        log_str = json.dumps(log_obj)
         if level == "INFO":
-            self.logger.info(log_str)
+            self.logger.info(msg)
         elif level in ["WARN", "WARNING"]:
-            self.logger.warning(log_str)
+            self.logger.warning(msg)
         elif level == "ERROR":
-            self.logger.error(log_str)
+            self.logger.error(msg)
+        elif level == "DEBUG":
+            self.logger.debug(msg)
 
+    def debug(self, msg): self._log("DEBUG", msg)
     def info(self, msg): self._log("INFO", msg)
     def warning(self, msg): self._log("WARN", msg)
     def warn(self, msg): self._log("WARN", msg)

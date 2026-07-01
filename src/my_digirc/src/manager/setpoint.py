@@ -44,7 +44,8 @@ def update_yaw(drones, drone_id, yaw_deg, logger):
             target.down_m,
             float(yaw_deg),
         )
-        logger.info(f"Drone {drone_id}: yaw updated to {yaw_deg}°")
+        if hasattr(logger, 'debug'):
+            logger.debug(f"Drone {drone_id}: yaw updated to {yaw_deg}°")
     else:
         if hasattr(logger, 'warn'):
             logger.warn(
