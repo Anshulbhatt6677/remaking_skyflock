@@ -50,7 +50,7 @@ cd ~/PX4-Autopilot
 # Drone 1 (Starts Gazebo server + GUI)
 make px4_sitl gz_x500 > /tmp/px4_drone1.log 2>&1 &
 PX4_PID1=$!
-sleep 15 # Give Gazebo time to fully start
+sleep 25 # Give Gazebo time to fully start
 
 # Drone 2
 PX4_SIM_MODEL=gz_x500 PX4_GZ_MODEL_POSE="5,0,0,0,0,0" build/px4_sitl_default/bin/px4 -i 1 build/px4_sitl_default/etc > /tmp/px4_drone2.log 2>&1 &

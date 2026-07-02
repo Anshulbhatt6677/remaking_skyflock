@@ -234,3 +234,32 @@ To graduate from a prototype to a production-ready system, we needed real-time v
    - `drone_battery_percent` (Gauge): Real-time battery status.
    - `swarm_commands_total` (Counter): Tracking executed commands per drone.
 3. **ROS 2 `/diagnostics` Integration**: We added the `diagnostic_msgs` dependency and created a publisher for `/diagnostics`. The system now leverages MAVSDK's EKF health states (`is_global_position_ok`, `is_home_position_ok`) and maps them to standard `DiagnosticStatus.OK` and `ERROR` flags, seamlessly bridging the PX4 layer to the standard ROS 2 diagnostics ecosystem.
+
+---
+
+## 17. Independent Drone Control & Detachment
+**Date Implemented:** 2026-07-02
+**Related To:** Autonomous Formations & Human Override
+
+### The Need
+During a swarm mission (like a revolution or formation flight), the operator might need to temporarily take manual control of a single drone (e.g., to inspect something) while the rest of the swarm continues its automated mission undisturbed. The operator then needs a way to command that drone to instantly rejoin the swarm formation.
+
+### The Solution
+1. **Selection & State Management**: Added `active_swarm` and `detached_drones` sets to the Orchestrator. Pressing keys `1` through `9` sets the `selected_target` and moves the drone into `detached_drones`. 
+2. **Formation Gap Handling**: The formation and revolution algorithms (V, Line, Orbit) were updated to calculate slots for all drones but *skip sending commands* to detached drones. This perfectly maintains the structural integrity of the formation while leaving a physical "hole" where the detached drone used to be.
+3. **Independent Movement**: When a specific drone is selected, manual commands (WASD, QE, etc.) are routed exclusively to that drone's cached target coordinates instead of shifting the entire swarm center.
+4. **Instant Rejoin**: Pressing `p` (`REJOIN`) immediately moves the selected drone back into the `active_swarm` set. The Orchestrator automatically commands it to fly directly to its assigned slot in the ongoing formation or orbit.
+
+---
+
+## 18. Bugfix: Intermittent Takeoff Failure & Race Conditions
+**Date Implemented:** 2026-07-02
+**Related To:** Multi-Drone SITL Startup & `takeoff_drone` Sequence
+
+### The Issue
+During testing, commanding the swarm to `TAKEOFF` occasionally caused a drone to remain on the ground. Flight logs (`.ros/log/`) revealed that when the orchestrator dispatched `TAKEOFF` commands to all drones concurrently, all `MAVSDK` instances would wait for EKF (Estimator) health to converge. Since they finished initialization around the same time, all instances would attempt to execute `HOLD`, set altitude, and `ARM` at the exact same millisecond. This massive spike in concurrent RPC/socket requests and Gazebo physics updates caused race conditions in the PX4 SITL bridge, resulting in dropped commands or `COMMAND_DENIED` errors.
+
+### The Solution
+I introduced a **mathematical stagger delay** in `src/my_digirc/src/manager/commands.py`. Right after the `health OK` synchronization point, the sequence calculates a delay based on the drone ID:
+`stagger_delay = (drone_id - 1) * 2.0`
+This artificially desynchronizes the remainder of the sequence. Even if all drones become healthy simultaneously, Drone 1 arms immediately, Drone 2 waits 2.0s, and Drone 3 waits 4.0s. This decouples the heavy initialization load and ensures reliable arming/takeoff for every drone in the swarm.

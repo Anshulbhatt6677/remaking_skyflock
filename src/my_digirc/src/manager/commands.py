@@ -77,6 +77,12 @@ async def takeoff_drone(drones, drone_id, logger):
 
     logger.info(f"Drone {drone_id}: health OK — proceeding to takeoff")
 
+    # Stagger takeoff sequence based on drone_id to prevent MAVSDK/Gazebo arming race conditions
+    stagger_delay = (drone_id - 1) * 2.0
+    if stagger_delay > 0:
+        logger.info(f"Drone {drone_id}: staggering takeoff sequence by {stagger_delay}s...")
+        await asyncio.sleep(stagger_delay)
+
     # Switch to hold to clear any stale land state
     try:
         logger.info(f"Drone {drone_id}: switching to HOLD mode")
@@ -130,13 +136,48 @@ async def takeoff_drone(drones, drone_id, logger):
         logger.error(f"Drone {drone_id}: Failed to arm after 3 attempts.")
 
     # Takeoff
-    try:
-        logger.info(f"Drone {drone_id}: sending takeoff command")
-        await drone.action.takeoff()
-        await asyncio.sleep(2)
-        logger.info(f"Drone {drone_id}: takeoff command sent")
-    except Exception as e:
-        logger.error(f"Drone {drone_id}: TAKEOFF ERROR — {e}")
+    takeoff_success = False
+    for attempt in range(3):
+        try:
+            logger.info(f"Drone {drone_id}: sending takeoff command (attempt {attempt+1})")
+            await drone.action.takeoff()
+            
+            # Wait up to 5 seconds to verify it is actually in the air
+            for check in range(10):
+                await asyncio.sleep(0.5)
+                is_in_air = False
+                async for in_air_state in drone.telemetry.in_air():
+                    is_in_air = in_air_state
+                    break
+                
+                if is_in_air:
+                    takeoff_success = True
+                    break
+            
+            if takeoff_success:
+                logger.info(f"Drone {drone_id}: takeoff successful (verified in air)")
+                break
+            else:
+                msg = f"Drone {drone_id}: did not detect 'in air' state, retrying..."
+                if hasattr(logger, 'warn'):
+                    logger.warn(msg)
+                else:
+                    logger.warning(msg)
+                
+        except Exception as e:
+            msg = f"Drone {drone_id}: TAKEOFF ERROR — {e}"
+            if "COMMAND_DENIED" in str(e):
+                logger.info(f"Drone {drone_id}: already taking off.")
+                takeoff_success = True
+                break
+            if hasattr(logger, 'warn'):
+                logger.warn(msg)
+            else:
+                logger.warning(msg)
+            await asyncio.sleep(2)
+            
+    if not takeoff_success:
+        logger.error(f"Drone {drone_id}: TAKEOFF ERROR — Failed to takeoff after 3 attempts.")
 
 
 async def land_drone(drones, drone_id, logger):

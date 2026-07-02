@@ -83,6 +83,8 @@ Press these keys **in order** for your first flight:
 | `r` | Toggle yaw rotation | `h` | Hover |
 | `x/z` | Reverse revolution/rotation | `k`/Space | Land |
 | `m` | Square mission (autonomous) | Ctrl+C | Quit |
+| `1`-`9` | Select & Detach Drone N | `p` | Rejoin formation |
+| `0` | Re-select Swarm (default) | | |
 
 ---
 
@@ -174,7 +176,12 @@ self.center_y = 0.0           # Swarm center — East (meters)
 self.center_z = -8.0          # Swarm center — altitude (negative = up in NED)
 self.center_yaw = 0.0         # Heading (degrees)
 self.current_formation = None  # "V" | "LINE" | None
+self.active_swarm = set(...)  # Drones currently in formation
+self.detached_drones = set()  # Drones controlled independently
 ```
+
+**Independent Control (Detachment):**
+If you press `1` through `9`, the orchestrator moves that drone into the `detached_drones` list. Manual commands (`w`, `a`, `s`, `d`) will then apply **only** to that drone. Meanwhile, the background formation loops (like orbit or V) will continue running but will purposely skip sending commands to detached drones, leaving a gap in the formation. Pressing `p` moves the drone back into the `active_swarm`, causing it to immediately rejoin.
 
 **How commands flow — `command_callback()`:**
 

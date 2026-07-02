@@ -51,6 +51,17 @@ class SwarmOrchestrator(Node):
         self.current_formation = None
         self.mission_active = False
 
+        # Swarm detachment and selection state
+        self.active_swarm = set(range(1, self.num_drones + 1))
+        self.detached_drones = set()
+        self.selected_target = "SWARM" # "SWARM" or int drone_id
+        
+        # Cache for global targets sent to each drone
+        self.drone_targets = {
+            i: {'x': 0.0, 'y': 0.0, 'z': -8.0, 'yaw': 0.0}
+            for i in range(1, self.num_drones + 1)
+        }
+
         # Revolution state (orbiting drones around center)
         self.revolution_active = False
         self.revolution_speed = 10.0      # deg/s, sign = direction
@@ -125,6 +136,8 @@ class SwarmOrchestrator(Node):
             offset_x, offset_y = self.spawn_offsets.get(drone_id, (0.0, 0.0))
             req.x = float(x - offset_x)
             req.y = float(y - offset_y)
+            # Update cache of the requested GLOBAL position
+            self.drone_targets[drone_id] = {'x': float(x), 'y': float(y), 'z': float(z), 'yaw': float(yaw)}
         else:
             req.x = float(x)
             req.y = float(y)
@@ -144,6 +157,36 @@ class SwarmOrchestrator(Node):
         cmd = msg.data.upper()
         self.get_logger().info(f"Received swarm command: {cmd}")
 
+        # Handle Selection commands
+        if cmd.startswith("SELECT_"):
+            target_str = cmd.split("_")[1]
+            if target_str == "SWARM":
+                self.selected_target = "SWARM"
+                self.get_logger().info("Control returned to SWARM.")
+            elif target_str.isdigit():
+                drone_id = int(target_str)
+                if 1 <= drone_id <= self.num_drones:
+                    self.selected_target = drone_id
+                    if drone_id in self.active_swarm:
+                        self.active_swarm.remove(drone_id)
+                        self.detached_drones.add(drone_id)
+                        self.get_logger().info(f"Drone {drone_id} selected and detached from swarm.")
+                    else:
+                        self.get_logger().info(f"Drone {drone_id} selected (already detached).")
+            return
+            
+        elif cmd == "REJOIN":
+            if isinstance(self.selected_target, int):
+                drone_id = self.selected_target
+                if drone_id in self.detached_drones:
+                    self.detached_drones.remove(drone_id)
+                    self.active_swarm.add(drone_id)
+                    self.get_logger().info(f"Drone {drone_id} rejoining the swarm.")
+                    self.selected_target = "SWARM"
+                    # Trigger an immediate GOTO to its assigned slot by updating formation
+                    self.update_formation()
+            return
+
         # Abort active mission on any new command (except SQUARE itself)
         if cmd != "SQUARE":
             if self.mission_active:
@@ -153,9 +196,15 @@ class SwarmOrchestrator(Node):
             self.mission_active = False
 
         if cmd == "TAKEOFF":
-            self.takeoff_all()
+            if self.selected_target == "SWARM":
+                self.takeoff_all()
+            else:
+                self.send_command(self.selected_target, "TAKEOFF")
         elif cmd == "OFFBOARD":
-            self.start_offboard_all()
+            if self.selected_target == "SWARM":
+                self.start_offboard_all()
+            else:
+                self.send_command(self.selected_target, "START_OFFBOARD")
         elif cmd == "V":
             self.stop_revolution()
             self.current_formation = "V"
@@ -165,43 +214,73 @@ class SwarmOrchestrator(Node):
             self.current_formation = "LINE"
             self.update_formation()
         elif cmd == "HOVER":
-            self.stop_revolution()
-            self.stop_rotation()
-            self.hover_all()
+            if self.selected_target == "SWARM":
+                self.stop_revolution()
+                self.stop_rotation()
+                self.hover_all()
+            else:
+                self.send_command(self.selected_target, "HOVER")
         elif cmd == "LAND":
-            self.stop_revolution()
-            self.stop_rotation()
-            self.land_all()
+            if self.selected_target == "SWARM":
+                self.stop_revolution()
+                self.stop_rotation()
+                self.land_all()
+            else:
+                self.send_command(self.selected_target, "LAND")
         elif cmd == "FORWARD":
-            self.center_x += 1.0
-            if not self.revolution_active:
-                self.update_formation()
+            if self.selected_target == "SWARM":
+                self.center_x += 1.0
+                if not self.revolution_active:
+                    self.update_formation()
+            else:
+                self.move_detached("x", 1.0)
         elif cmd == "BACKWARD":
-            self.center_x -= 1.0
-            if not self.revolution_active:
-                self.update_formation()
+            if self.selected_target == "SWARM":
+                self.center_x -= 1.0
+                if not self.revolution_active:
+                    self.update_formation()
+            else:
+                self.move_detached("x", -1.0)
         elif cmd == "LEFT":
-            self.center_y -= 1.0
-            if not self.revolution_active:
-                self.update_formation()
+            if self.selected_target == "SWARM":
+                self.center_y -= 1.0
+                if not self.revolution_active:
+                    self.update_formation()
+            else:
+                self.move_detached("y", -1.0)
         elif cmd == "RIGHT":
-            self.center_y += 1.0
-            if not self.revolution_active:
-                self.update_formation()
+            if self.selected_target == "SWARM":
+                self.center_y += 1.0
+                if not self.revolution_active:
+                    self.update_formation()
+            else:
+                self.move_detached("y", 1.0)
         elif cmd == "UP":
-            self.center_z -= 1.0  # Up in NED is negative
-            if not self.revolution_active:
-                self.update_formation()
+            if self.selected_target == "SWARM":
+                self.center_z -= 1.0  # Up in NED is negative
+                if not self.revolution_active:
+                    self.update_formation()
+            else:
+                self.move_detached("z", -1.0)
         elif cmd == "DOWN":
-            self.center_z += 1.0  # Down in NED is positive
-            if not self.revolution_active:
-                self.update_formation()
+            if self.selected_target == "SWARM":
+                self.center_z += 1.0  # Down in NED is positive
+                if not self.revolution_active:
+                    self.update_formation()
+            else:
+                self.move_detached("z", 1.0)
         elif cmd == "ROTATE_LEFT":
-            self.center_yaw -= 15.0
-            self.update_yaw_all()
+            if self.selected_target == "SWARM":
+                self.center_yaw -= 15.0
+                self.update_yaw_all()
+            else:
+                self.move_detached("yaw", -15.0)
         elif cmd == "ROTATE_RIGHT":
-            self.center_yaw += 15.0
-            self.update_yaw_all()
+            if self.selected_target == "SWARM":
+                self.center_yaw += 15.0
+                self.update_yaw_all()
+            else:
+                self.move_detached("yaw", 15.0)
         elif cmd == "SQUARE":
             self.trigger_square_mission()
         elif cmd == "REVOLVE":
@@ -220,6 +299,21 @@ class SwarmOrchestrator(Node):
             )
         else:
             self.get_logger().warning(f"Unknown command: {cmd}")
+
+    def move_detached(self, axis, amount):
+        """Helper to move a detached drone from its current cached target."""
+        drone_id = self.selected_target
+        if axis == "x":
+            self.drone_targets[drone_id]['x'] += amount
+        elif axis == "y":
+            self.drone_targets[drone_id]['y'] += amount
+        elif axis == "z":
+            self.drone_targets[drone_id]['z'] += amount
+        elif axis == "yaw":
+            self.drone_targets[drone_id]['yaw'] += amount
+            
+        t = self.drone_targets[drone_id]
+        self.send_command(drone_id, "GOTO", t['x'], t['y'], t['z'], t['yaw'])
 
     # ------------------------------------------------------------------
     # Formations
@@ -245,20 +339,22 @@ class SwarmOrchestrator(Node):
         )
 
         # Leader
-        self.send_command(1, "GOTO", center_x, center_y, center_z, self.center_yaw)
+        if 1 in self.active_swarm:
+            self.send_command(1, "GOTO", center_x, center_y, center_z, self.center_yaw)
 
         # Wings — dynamically sized based on NUM_DRONES
         wing_pair = 1
         for i in range(2, self.num_drones + 1, 2):
             # Left wing
-            self.send_command(
-                i, "GOTO",
-                center_x - spacing * wing_pair,
-                center_y - spacing * wing_pair,
-                center_z, self.center_yaw,
-            )
+            if i in self.active_swarm:
+                self.send_command(
+                    i, "GOTO",
+                    center_x - spacing * wing_pair,
+                    center_y - spacing * wing_pair,
+                    center_z, self.center_yaw,
+                )
             # Right wing (if there's a drone for it)
-            if i + 1 <= self.num_drones:
+            if i + 1 <= self.num_drones and (i + 1) in self.active_swarm:
                 self.send_command(
                     i + 1, "GOTO",
                     center_x - spacing * wing_pair,
@@ -274,19 +370,21 @@ class SwarmOrchestrator(Node):
         )
 
         # Center drone 1, then alternate left/right for the rest
-        self.send_command(1, "GOTO", center_x, center_y, center_z, self.center_yaw)
+        if 1 in self.active_swarm:
+            self.send_command(1, "GOTO", center_x, center_y, center_z, self.center_yaw)
 
         offset_index = 1
         for i in range(2, self.num_drones + 1, 2):
             # Left
-            self.send_command(
-                i, "GOTO",
-                center_x,
-                center_y - spacing * offset_index,
-                center_z, self.center_yaw,
-            )
+            if i in self.active_swarm:
+                self.send_command(
+                    i, "GOTO",
+                    center_x,
+                    center_y - spacing * offset_index,
+                    center_z, self.center_yaw,
+                )
             # Right
-            if i + 1 <= self.num_drones:
+            if i + 1 <= self.num_drones and (i + 1) in self.active_swarm:
                 self.send_command(
                     i + 1, "GOTO",
                     center_x,
@@ -356,6 +454,9 @@ class SwarmOrchestrator(Node):
         angle_step = 360.0 / self.num_drones
 
         for i in range(1, self.num_drones + 1):
+            if i not in self.active_swarm:
+                continue
+
             # Calculate an offset angle that matches the V/Line formation structure:
             # Drone 1 (Leader): 0 offset
             # Drone 2 (Left): -angle_step
@@ -437,7 +538,8 @@ class SwarmOrchestrator(Node):
         msg = Float32()
         msg.data = self.rotation_angle
         for i in range(1, self.num_drones + 1):
-            self.yaw_pubs[i].publish(msg)
+            if i in self.active_swarm:
+                self.yaw_pubs[i].publish(msg)
 
     # ------------------------------------------------------------------
     # Bulk Operations
@@ -447,7 +549,8 @@ class SwarmOrchestrator(Node):
         msg = Float32()
         msg.data = self.center_yaw
         for i in range(1, self.num_drones + 1):
-            self.yaw_pubs[i].publish(msg)
+            if i in self.active_swarm:
+                self.yaw_pubs[i].publish(msg)
         self.get_logger().info(
             f"Updated swarm yaw to {self.center_yaw} degrees"
         )

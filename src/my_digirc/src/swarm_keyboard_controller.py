@@ -40,6 +40,11 @@ h : Hover in place
 k : Land
 Space: Land
 
+Selection & Independence:
+0 : Control Entire Swarm (Default)
+1-9 : Select & Detach Drone N for independent control
+p : Rejoin selected drone to the swarm
+
 CTRL-C to quit
 """
 
@@ -67,6 +72,17 @@ commandBindings = {
     ' ': 'LAND',
     'c': 'REVOLVE',
     'r': 'ROTATE',
+    '0': 'SELECT_SWARM',
+    '1': 'SELECT_1',
+    '2': 'SELECT_2',
+    '3': 'SELECT_3',
+    '4': 'SELECT_4',
+    '5': 'SELECT_5',
+    '6': 'SELECT_6',
+    '7': 'SELECT_7',
+    '8': 'SELECT_8',
+    '9': 'SELECT_9',
+    'p': 'REJOIN',
 }
 
 def getKey(settings):
